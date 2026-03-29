@@ -26,6 +26,9 @@ namespace StardewAgent
         private const float MoveThreshold = 4f; // pixels — close enough to snap to target
         private const int HeartbeatTimeoutTicks = 300; // ~5 seconds at 60 tps
 
+        // WebSocket event server
+        private WebSocketServer _wss;
+
         // Queued responses that need to be built on the game thread
         private readonly object _lock = new();
         private string _cachedState;
@@ -47,10 +50,20 @@ namespace StardewAgent
         private int _lastHeartbeatTick;
         private int _currentTick;
 
+        // Track previous values for change detection
+        private int _lastTimeOfDay;
+        private string _lastLocation;
+        private bool _lastMenuState;
+
         public override void Entry(IModHelper helper)
         {
             helper.Events.GameLoop.UpdateTicked += OnUpdateTicked;
             helper.Events.GameLoop.ReturnedToTitle += OnReturnedToTitle;
+            helper.Events.GameLoop.DayStarted += OnDayStarted;
+            helper.Events.Player.InventoryChanged += OnInventoryChanged;
+
+            _wss = new WebSocketServer(Monitor);
+            _wss.Start();
 
             StartHttpServer();
             Monitor.Log($"StardewAgent HTTP server started on port {HttpPort}", LogLevel.Info);
@@ -333,6 +346,9 @@ namespace StardewAgent
             {
                 ExecutePathTick();
             }
+
+            // Broadcast game events via WebSocket
+            BroadcastEvents();
         }
 
         /// <summary>
@@ -424,6 +440,55 @@ namespace StardewAgent
                 else
                     player.FacingDirection = diff.Y > 0 ? 2 : 0;
             }
+        }
+
+        /// <summary>
+        /// Checks for game state changes and broadcasts WebSocket events.
+        /// Called from OnUpdateTicked.
+        /// </summary>
+        private void BroadcastEvents()
+        {
+            var player = Game1.player;
+
+            // Time changed
+            int time = Game1.timeOfDay;
+            if (time != _lastTimeOfDay)
+            {
+                _lastTimeOfDay = time;
+                _wss.Broadcast(new { @event = "time_changed", time });
+            }
+
+            // Location changed
+            string loc = player.currentLocation?.Name;
+            if (loc != null && loc != _lastLocation)
+            {
+                _lastLocation = loc;
+                _wss.Broadcast(new { @event = "location_changed", location = loc });
+            }
+
+            // Menu state changed
+            bool menuOpen = Game1.activeClickableMenu != null;
+            if (menuOpen != _lastMenuState)
+            {
+                _lastMenuState = menuOpen;
+                _wss.Broadcast(new { @event = menuOpen ? "menu_opened" : "menu_closed" });
+            }
+        }
+
+        private void OnDayStarted(object sender, StardewModdingAPI.Events.DayStartedEventArgs e)
+        {
+            _wss.Broadcast(new
+            {
+                @event = "day_started",
+                day = Game1.dayOfMonth,
+                season = Game1.currentSeason,
+                year = Game1.year
+            });
+        }
+
+        private void OnInventoryChanged(object sender, StardewModdingAPI.Events.InventoryChangedEventArgs e)
+        {
+            _wss.Broadcast(new { @event = "inventory_changed" });
         }
 
         private void OnReturnedToTitle(object sender, ReturnedToTitleEventArgs e)
