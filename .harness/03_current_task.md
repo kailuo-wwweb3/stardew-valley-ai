@@ -1,23 +1,14 @@
 # Current Task
 
-## Status: Phase 2 Complete
+## Status: Phase 5 Complete
 
-Phase 2 (Action Execution & Safety) is complete. New/updated files:
+Phase 5 (Event-Driven LLM Integration) is complete.
 
-- `mod/StardewAgent/ActionService.cs` — tool use with facing direction, stamina checks, path building
-- `mod/StardewAgent/ModEntry.cs` — POST /action (use_tool, walk_path), POST /heartbeat, GET /pathstatus, POST /stop, path execution in UpdateTicked, heartbeat timeout (5s)
+- `agent/ai_brain.py` — Claude API integration with prompt construction, token compression, contextual mechanics loading
+- `agent/agent.py` — LLM hooked into idle/blocked states, action execution (walk_to, use_tool, wait)
 
-## Endpoints
+## Testing Criteria
 
-| Method | Path         | Purpose                                    |
-|--------|--------------|--------------------------------------------|
-| GET    | /state       | Game state snapshot                        |
-| GET    | /map         | RLE collision matrix                       |
-| POST   | /action      | Queue use_tool or walk_path (202 for path) |
-| POST   | /heartbeat   | Reset heartbeat timer                      |
-| GET    | /pathstatus  | Check active path progress                 |
-| POST   | /stop        | Cancel active path                         |
-
-## Next Step
-
-Awaiting user approval to begin **Phase 3: Python Client & Full-Map Pathfinding (The Nervous System)**.
+1. Agent enters blocked state → LLM reasons about blocker and chooses correct tool
+2. Agent in idle state → LLM plans productive tasks
+3. Contextual mechanics loading works (farming keywords load farming ref)

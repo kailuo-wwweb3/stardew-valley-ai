@@ -14,6 +14,7 @@ import websockets.sync.client
 
 from game_client import GameClient
 from actions import Actions
+from ai_brain import AIBrain
 from config import MOD_HTTP_URL
 
 WSS_URL = "ws://127.0.0.1:7881/"
@@ -38,6 +39,7 @@ class Agent:
     def __init__(self):
         self.client = GameClient()
         self.actions = Actions(self.client)
+        self.brain = AIBrain()
         self.status = AgentStatus.IDLE
         self.current_task = None
 
@@ -230,18 +232,82 @@ class Agent:
 
         # State machine
         if self.status == AgentStatus.IDLE:
-            # In Phase 5, the LLM will be called here to decide what to do.
-            # For now, just report idle status periodically.
-            pass
+            action = self.brain.decide(state, context="Agent is idle. Decide what to do next.")
+            if action:
+                self._execute_action(action, state)
 
         elif self.status == AgentStatus.WORKING:
-            # In Phase 5, this will execute the current task plan.
-            pass
+            # Continue current task — check if it's done
+            if self.current_task:
+                action = self.brain.decide(state, context=f"Currently working on: {self.current_task}. Continue or change plan?")
+                if action:
+                    self._execute_action(action, state)
+            else:
+                self.status = AgentStatus.IDLE
 
         elif self.status == AgentStatus.BLOCKED:
-            # In Phase 5, the LLM will be called to reason about the blocker.
-            print(f"[BLOCKED] Agent is blocked. Waiting for LLM integration (Phase 5).")
-            time.sleep(2)
+            # Ask the LLM to reason about the blocker
+            blocked_context = (
+                f"Agent is BLOCKED after {self._frustration_count} failed attempts "
+                f"at action: {self._last_action_key}. "
+                f"Look at the nearby tiles to identify the obstacle and choose "
+                f"the right tool to clear it, or pick an alternative path."
+            )
+            action = self.brain.decide(state, context=blocked_context)
+            if action:
+                self.reset_frustration()
+                self._execute_action(action, state)
+
+    # ── Action execution ─────────────────────────────────────────
+
+    def _execute_action(self, action: dict, state: dict):
+        """Execute an action returned by the AI brain."""
+        action_type = action.get("action")
+        reason = action.get("reason", "")
+
+        if action_type == "walk_to":
+            x, y = action.get("x", 0), action.get("y", 0)
+            action_key = f"walk_to:{x},{y}"
+            self.track_action(action_key)
+
+            if self.status == AgentStatus.BLOCKED:
+                return  # frustration limit hit
+
+            self.status = AgentStatus.WORKING
+            self.current_task = reason
+            success = self.actions.walk_to(x, y)
+
+            if success:
+                self.reset_frustration()
+                self.status = AgentStatus.IDLE
+                self.current_task = None
+            # If not successful, frustration counter will handle it on next tick
+
+        elif action_type == "use_tool":
+            x, y = action.get("x", 0), action.get("y", 0)
+            tool = action.get("tool")
+            action_key = f"use_tool:{tool}@{x},{y}"
+            self.track_action(action_key)
+
+            if self.status == AgentStatus.BLOCKED:
+                return
+
+            self.status = AgentStatus.WORKING
+            self.current_task = reason
+            try:
+                result = self.client.use_tool(x, y, tool)
+                print(f"[ACTION] Tool result: {result}")
+                self.reset_frustration()
+                self.status = AgentStatus.IDLE
+                self.current_task = None
+            except Exception as e:
+                print(f"[ACTION] Tool failed: {e}")
+
+        elif action_type == "wait":
+            time.sleep(1)
+
+        else:
+            print(f"[ACTION] Unknown action type: {action_type}")
 
     # ── Utilities ──────────────────────────────────────────────────
 

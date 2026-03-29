@@ -1,0 +1,11 @@
+# Secrets
+.env
+
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# .NET build output
+mod/StardewAgent/bin/
+mod/StardewAgent/obj/
