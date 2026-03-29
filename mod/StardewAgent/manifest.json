@@ -1,0 +1,10 @@
+{
+  "Name": "StardewAgent",
+  "Author": "StardewAI",
+  "Version": "1.0.0",
+  "Description": "AI agent mod that exposes game state via HTTP and accepts commands.",
+  "UniqueID": "StardewAI.StardewAgent",
+  "EntryDll": "StardewAgent.dll",
+  "MinimumApiVersion": "3.18.0",
+  "UpdateKeys": []
+}
