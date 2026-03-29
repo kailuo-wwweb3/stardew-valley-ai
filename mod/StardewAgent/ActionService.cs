@@ -91,8 +91,8 @@ namespace StardewAgent
                     error = "error: each path point must have [x, y]";
                     return null;
                 }
-                // Center of tile (tile * 64 + 32 for center)
-                pixelPath.Add(new Vector2(tile[0] * 64 + 32, tile[1] * 64 + 32));
+                // Align to tile origin (tile * 64) so Tile property reports correctly
+                pixelPath.Add(new Vector2(tile[0] * 64, tile[1] * 64));
             }
 
             return pixelPath;
