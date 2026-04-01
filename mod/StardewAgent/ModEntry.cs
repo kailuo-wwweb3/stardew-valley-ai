@@ -50,6 +50,13 @@ namespace StardewAgent
         private int _lastHeartbeatTick;
         private int _currentTick;
 
+        // Time freeze for testing
+        private bool _timeFrozen;
+
+        // Auto-load save
+        private const string AutoLoadSave = "hk_418966114";
+        private bool _autoLoadTriggered;
+
         // Track previous values for change detection
         private int _lastTimeOfDay;
         private string _lastLocation;
@@ -61,6 +68,7 @@ namespace StardewAgent
             helper.Events.GameLoop.ReturnedToTitle += OnReturnedToTitle;
             helper.Events.GameLoop.DayStarted += OnDayStarted;
             helper.Events.Player.InventoryChanged += OnInventoryChanged;
+            helper.Events.GameLoop.GameLaunched += OnGameLaunched;
 
             _wss = new WebSocketServer(Monitor);
             _wss.Start();
@@ -262,6 +270,25 @@ namespace StardewAgent
                     }
                     SendJson(response, 200, "{\"status\":\"stopped\"}");
                 }
+                // POST /freeze-time
+                else if (method == "POST" && path == "/freeze-time")
+                {
+                    string body;
+                    using (var reader = new StreamReader(request.InputStream, request.ContentEncoding))
+                    {
+                        body = reader.ReadToEnd();
+                    }
+                    try
+                    {
+                        var doc = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(body);
+                        _timeFrozen = doc.ContainsKey("frozen") && doc["frozen"].GetBoolean();
+                        SendJson(response, 200, $"{{\"status\":\"ok\",\"frozen\":{(_timeFrozen ? "true" : "false")}}}");
+                    }
+                    catch (Exception ex)
+                    {
+                        SendJson(response, 400, $"{{\"error\":\"{EscapeJson(ex.Message)}\"}}");
+                    }
+                }
                 else
                 {
                     SendJson(response, 404, "{\"error\":\"Not found\"}");
@@ -280,6 +307,28 @@ namespace StardewAgent
         /// </summary>
         private void OnUpdateTicked(object sender, UpdateTickedEventArgs e)
         {
+            // Auto-load save when title screen is fully ready
+            if (!_autoLoadTriggered && !Context.IsWorldReady &&
+                Game1.activeClickableMenu is StardewValley.Menus.TitleMenu titleMenu &&
+                StardewValley.Menus.TitleMenu.subMenu == null &&
+                titleMenu.titleInPosition && !titleMenu.isTransitioningButtons &&
+                (int)e.Ticks > 120) // wait ~2 seconds for title to settle
+            {
+                _autoLoadTriggered = true;
+                Monitor.Log($"Auto-loading save: {AutoLoadSave}", LogLevel.Info);
+                try
+                {
+                    // Must clear title menu before loading or the load conflicts with it
+                    Game1.activeClickableMenu = null;
+                    SaveGame.Load(AutoLoadSave);
+                    Monitor.Log("SaveGame.Load() called successfully", LogLevel.Info);
+                }
+                catch (Exception ex)
+                {
+                    Monitor.Log($"Auto-load failed: {ex}", LogLevel.Error);
+                }
+            }
+
             if (!Context.IsWorldReady) return;
 
             _currentTick = (int)e.Ticks;
@@ -341,6 +390,10 @@ namespace StardewAgent
                 }
             }
 
+            // Freeze time if enabled (for testing)
+            if (_timeFrozen)
+                Game1.gameTimeInterval = 0;
+
             // Execute active path (outside lock to avoid blocking HTTP thread)
             if (_pathActive)
             {
@@ -375,6 +428,28 @@ namespace StardewAgent
                     _lastHeartbeatTick = _currentTick;
                     Monitor.Log($"Path started: {pixelPath.Count} points", LogLevel.Debug);
                     return "ok";
+
+                case "clear_area":
+                    return ActionService.ClearArea(action.CenterX, action.CenterY,
+                        action.Radius > 0 ? action.Radius : 5);
+
+                case "interact":
+                    return ActionService.Interact(action.TargetX, action.TargetY, action.ItemName);
+
+                case "spawn_object":
+                    if (string.IsNullOrEmpty(action.ObjectId))
+                        return "error: missing 'objectId'";
+                    return ActionService.SpawnObject(action.TargetX, action.TargetY, action.ObjectId);
+
+                case "add_item":
+                    if (string.IsNullOrEmpty(action.ItemId))
+                        return "error: missing 'itemId'";
+                    return ActionService.AddItem(action.ItemId, action.Count > 0 ? action.Count : 1);
+
+                case "warp":
+                    if (string.IsNullOrEmpty(action.LocationName))
+                        return "error: missing 'locationName'";
+                    return ActionService.WarpPlayer(action.LocationName, action.TargetX, action.TargetY);
 
                 default:
                     return $"error: unknown action type '{action.Type}'";
@@ -505,6 +580,11 @@ namespace StardewAgent
             _wss.Broadcast(new { @event = "inventory_changed" });
         }
 
+        private void OnGameLaunched(object sender, StardewModdingAPI.Events.GameLaunchedEventArgs e)
+        {
+            _autoLoadTriggered = false;
+        }
+
         private void OnReturnedToTitle(object sender, ReturnedToTitleEventArgs e)
         {
             lock (_lock)
@@ -538,13 +618,13 @@ namespace StardewAgent
     /// </summary>
     public class ActionRequest
     {
-        /// <summary>Action type: "use_tool" or "walk_path"</summary>
+        /// <summary>Action type: "use_tool", "walk_path", "clear_area", "interact", "spawn_object", "add_item", "warp"</summary>
         public string Type { get; set; }
 
-        /// <summary>Target tile X for use_tool</summary>
+        /// <summary>Target tile X for use_tool/interact/spawn_object/warp</summary>
         public int TargetX { get; set; }
 
-        /// <summary>Target tile Y for use_tool</summary>
+        /// <summary>Target tile Y for use_tool/interact/spawn_object/warp</summary>
         public int TargetY { get; set; }
 
         /// <summary>Optional tool name to switch to before using</summary>
@@ -552,5 +632,29 @@ namespace StardewAgent
 
         /// <summary>Path array for walk_path: [[x,y], [x,y], ...]</summary>
         public List<int[]> Path { get; set; }
+
+        /// <summary>Center X for clear_area</summary>
+        public int CenterX { get; set; }
+
+        /// <summary>Center Y for clear_area</summary>
+        public int CenterY { get; set; }
+
+        /// <summary>Radius for clear_area</summary>
+        public int Radius { get; set; }
+
+        /// <summary>Object ID for spawn_object (e.g. "450" for stone)</summary>
+        public string ObjectId { get; set; }
+
+        /// <summary>Qualified item ID for add_item (e.g. "(O)472" for parsnip seeds)</summary>
+        public string ItemId { get; set; }
+
+        /// <summary>Stack count for add_item</summary>
+        public int Count { get; set; }
+
+        /// <summary>Location name for warp (e.g. "Farm", "FarmHouse")</summary>
+        public string LocationName { get; set; }
+
+        /// <summary>Item name for interact (e.g. "Parsnip Seeds")</summary>
+        public string ItemName { get; set; }
     }
 }

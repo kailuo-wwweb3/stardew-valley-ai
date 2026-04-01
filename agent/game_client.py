@@ -55,3 +55,46 @@ class GameClient:
         resp = self._client.post("/stop")
         resp.raise_for_status()
         return resp.json()
+
+    def freeze_time(self, frozen: bool = True) -> dict:
+        """Freeze or unfreeze the in-game clock."""
+        resp = self._client.post("/freeze-time", json={"frozen": frozen})
+        resp.raise_for_status()
+        return resp.json()
+
+    def clear_area(self, center_x: int, center_y: int, radius: int = 5) -> dict:
+        """Remove all objects and terrain features within radius of center tile."""
+        payload = {"type": "clear_area", "centerX": center_x, "centerY": center_y, "radius": radius}
+        resp = self._client.post("/action", json=payload)
+        resp.raise_for_status()
+        return resp.json()
+
+    def interact(self, target_x: int, target_y: int, item_name: str = None) -> dict:
+        """Right-click interact with a tile. If item_name given, select that item first (for planting)."""
+        payload = {"type": "interact", "targetX": target_x, "targetY": target_y}
+        if item_name:
+            payload["itemName"] = item_name
+        resp = self._client.post("/action", json=payload)
+        resp.raise_for_status()
+        return resp.json()
+
+    def spawn_object(self, tile_x: int, tile_y: int, object_id: str) -> dict:
+        """Spawn a game object at a tile (e.g. object_id='450' for stone)."""
+        payload = {"type": "spawn_object", "targetX": tile_x, "targetY": tile_y, "objectId": object_id}
+        resp = self._client.post("/action", json=payload)
+        resp.raise_for_status()
+        return resp.json()
+
+    def add_item(self, item_id: str, count: int = 1) -> dict:
+        """Add an item to the player's inventory (e.g. item_id='(O)472' for parsnip seeds)."""
+        payload = {"type": "add_item", "itemId": item_id, "count": count}
+        resp = self._client.post("/action", json=payload)
+        resp.raise_for_status()
+        return resp.json()
+
+    def warp(self, location: str, tile_x: int, tile_y: int) -> dict:
+        """Warp the player to a location and tile."""
+        payload = {"type": "warp", "targetX": tile_x, "targetY": tile_y, "locationName": location}
+        resp = self._client.post("/action", json=payload)
+        resp.raise_for_status()
+        return resp.json()

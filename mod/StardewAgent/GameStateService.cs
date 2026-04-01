@@ -39,7 +39,9 @@ namespace StardewAgent
                 ["maxHealth"] = player.maxHealth,
                 ["currentTool"] = player.CurrentTool?.Name ?? "none",
                 ["money"] = player.Money,
-                ["localTiles"] = GetLocalTileGrid(location, (int)player.Tile.X, (int)player.Tile.Y, 3)
+                ["activeMenu"] = Game1.activeClickableMenu?.GetType().Name ?? "none",
+                ["localTiles"] = GetLocalTileGrid(location, (int)player.Tile.X, (int)player.Tile.Y, 3),
+                ["inventory"] = GetInventory(player)
             };
 
             return state;
@@ -71,13 +73,28 @@ namespace StardewAgent
                     else if (location.terrainFeatures.ContainsKey(tileVec))
                         feature = location.terrainFeatures[tileVec].GetType().Name;
 
-                    tiles.Add(new Dictionary<string, object>
+                    var tileDict = new Dictionary<string, object>
                     {
                         ["x"] = tx,
                         ["y"] = ty,
                         ["walkable"] = walkable,
                         ["feature"] = feature
-                    });
+                    };
+
+                    // Enhanced HoeDirt detail for farming tests
+                    if (location.terrainFeatures.ContainsKey(tileVec) &&
+                        location.terrainFeatures[tileVec] is StardewValley.TerrainFeatures.HoeDirt hd)
+                    {
+                        tileDict["watered"] = hd.state.Value == 1;
+                        tileDict["hasCrop"] = hd.crop != null;
+                        if (hd.crop != null)
+                        {
+                            tileDict["cropPhase"] = hd.crop.currentPhase.Value;
+                            tileDict["cropReady"] = hd.crop.currentPhase.Value >= hd.crop.phaseDays.Count - 1;
+                        }
+                    }
+
+                    tiles.Add(tileDict);
                 }
             }
 
@@ -113,6 +130,30 @@ namespace StardewAgent
             {
                 return false;
             }
+        }
+
+        /// <summary>
+        /// Serializes the player's inventory as a list of item dictionaries.
+        /// </summary>
+        private static List<Dictionary<string, object>> GetInventory(Farmer player)
+        {
+            var inventory = new List<Dictionary<string, object>>();
+            for (int i = 0; i < player.Items.Count; i++)
+            {
+                var item = player.Items[i];
+                if (item != null)
+                {
+                    inventory.Add(new Dictionary<string, object>
+                    {
+                        ["slot"] = i,
+                        ["itemId"] = item.ItemId,
+                        ["name"] = item.Name,
+                        ["stack"] = item.Stack,
+                        ["category"] = item.Category
+                    });
+                }
+            }
+            return inventory;
         }
 
         /// <summary>
