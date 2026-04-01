@@ -63,6 +63,14 @@ class Actions:
         if self._cached_matrix is None:
             self.refresh_map()
 
+        # Bounds check
+        if not (0 <= end_x < self._map_width and 0 <= end_y < self._map_height):
+            print(f"Target ({end_x},{end_y}) out of bounds (map is {self._map_width}x{self._map_height})")
+            return None
+        if not (0 <= start_x < self._map_width and 0 <= start_y < self._map_height):
+            print(f"Start ({start_x},{start_y}) out of bounds")
+            return None
+
         # Get local tiles for dynamic overlay
         state = self.client.get_state()
         matrix = self.overlay_local_tiles(self._cached_matrix, state.get("localTiles", []))

@@ -387,12 +387,15 @@ namespace StardewAgent
         /// </summary>
         private void ExecutePathTick()
         {
+            var player = Game1.player;
+
             // Heartbeat check — stop if no heartbeat for 5 seconds
             if (_currentTick - _lastHeartbeatTick > HeartbeatTimeoutTicks)
             {
                 Monitor.Log("Heartbeat timeout — stopping path execution", LogLevel.Warn);
                 _pathActive = false;
                 _activePath = null;
+                player.Halt();
                 return;
             }
 
@@ -400,11 +403,11 @@ namespace StardewAgent
             {
                 _pathActive = false;
                 _activePath = null;
+                player.Halt();
                 Monitor.Log("Path completed", LogLevel.Debug);
                 return;
             }
 
-            var player = Game1.player;
             var target = _activePath[_activePathIndex];
             var current = player.Position;
             var diff = target - current;
@@ -417,6 +420,23 @@ namespace StardewAgent
                 _activePathIndex++;
                 return;
             }
+
+            // Update facing direction and trigger walk animation via movementDirections
+            int facingDir;
+            if (Math.Abs(diff.X) >= Math.Abs(diff.Y))
+                facingDir = diff.X > 0 ? 1 : 3; // right : left
+            else
+                facingDir = diff.Y > 0 ? 2 : 0; // down : up
+            player.FacingDirection = facingDir;
+
+            // movementDirections sets the composite sprite direction (arms layer)
+            if (!player.movementDirections.Contains(facingDir))
+            {
+                player.movementDirections.Clear();
+                player.movementDirections.Add(facingDir);
+            }
+            // updateMovementAnimation drives the actual walk cycle (legs + body frames)
+            player.updateMovementAnimation(Game1.currentGameTime);
 
             // Calculate movement speed (pixels per tick)
             float speed = (player.Speed + player.addedSpeed) * 64f / 60f;
@@ -433,12 +453,6 @@ namespace StardewAgent
                 // Move toward target
                 var direction = diff / distance;
                 player.Position = current + direction * speed;
-
-                // Update facing direction
-                if (Math.Abs(diff.X) >= Math.Abs(diff.Y))
-                    player.FacingDirection = diff.X > 0 ? 1 : 3;
-                else
-                    player.FacingDirection = diff.Y > 0 ? 2 : 0;
             }
         }
 
